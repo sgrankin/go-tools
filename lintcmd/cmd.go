@@ -59,21 +59,6 @@ func (cs caseFoldedString) String() string {
 	return cs.s
 }
 
-func (cs caseFoldedString) Index(idx int) byte {
-	return cs.s[idx]
-}
-
-func (cs caseFoldedString) Slice(start, end int) caseFoldedString {
-	if end == -1 {
-		end = len(cs.s)
-	}
-	return caseFoldedString{cs.s[start:end]}
-}
-
-func (cs caseFoldedString) Length() int {
-	return len(cs.s)
-}
-
 // Command represents a linter command line tool.
 type Command struct {
 	name           string

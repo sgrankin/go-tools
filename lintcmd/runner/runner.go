@@ -523,19 +523,18 @@ func (r *subrunner) do(act action) error {
 	a.cfg = a.Package.Config.Merge(r.cfg)
 	h := cache.NewHash("staticcheck " + a.Package.PkgPath)
 
-	// Note that we do not filter the list of analyzers by the
-	// package's configuration. We don't allow configuration to
-	// accidentally break dependencies between analyzers, and it's
-	// easier to always run all checks and filter the output. This
-	// also makes cached data more reusable.
+	// The runner uses the union of checks enabled for all initial packages.
+	// It doesn't filter this list further for individual packages because
+	// doing so could omit facts needed by an importing package.
 
 	// OPT(dh): not all changes in configuration invalidate cached
 	// data. specifically, when a.factsOnly == true, we only care
 	// about checks that produce facts, and settings that affect those
 	// checks.
 
-	// Config used for constructing the hash; this config doesn't have
-	// Checks populated, because we always run all checks.
+	// Config used for constructing the hash. analyzerNames already identifies
+	// the selected union of checks, while per-package check selection only
+	// affects which cached diagnostics are displayed.
 	//
 	// This even works for users who add custom checks, because we include the binary's hash.
 	hashCfg := a.cfg
@@ -1172,6 +1171,29 @@ func allAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 	return out
 }
 
+func selectAnalyzers(analyzers []*analysis.Analyzer, pkgs []*loader.PackageSpec, cfg config.Config) []*analysis.Analyzer {
+	names := make([]string, len(analyzers))
+	for i, analyzer := range analyzers {
+		names[i] = analyzer.Name
+	}
+
+	enabled := map[string]bool{}
+	for _, pkg := range pkgs {
+		checks := pkg.Config.Merge(cfg).Checks
+		for name, value := range config.FilterChecks(names, checks) {
+			enabled[name] = enabled[name] || value
+		}
+	}
+
+	out := make([]*analysis.Analyzer, 0, len(analyzers))
+	for _, analyzer := range analyzers {
+		if enabled[strings.ToLower(analyzer.Name)] {
+			out = append(out, analyzer)
+		}
+	}
+	return out
+}
+
 // Run loads the packages specified by patterns, runs analyzers on
 // them and returns the results. Each result corresponds to a single
 // package. Results will be returned for all packages, including
@@ -1181,9 +1203,6 @@ func allAnalyzers(analyzers []*analysis.Analyzer) []*analysis.Analyzer {
 // If cfg is nil, a default config will be used. Otherwise, cfg will
 // be used, with the exception of the Mode field.
 func (r *Runner) Run(cfg *packages.Config, analyzers []*analysis.Analyzer, patterns []string) ([]Result, error) {
-	analyzers = allAnalyzers(analyzers)
-	registerGobTypes(analyzers)
-
 	r.Stats.setState(StateLoadPackageGraph)
 	lpkgs, err := loader.Graph(cfg, patterns...)
 	if err != nil {
@@ -1194,6 +1213,12 @@ func (r *Runner) Run(cfg *packages.Config, analyzers []*analysis.Analyzer, patte
 	if len(lpkgs) == 0 {
 		return nil, nil
 	}
+
+	// Run the union of checks enabled for the initial packages. Dependencies
+	// between analyzers are added after selection, so disabling a check never
+	// breaks the checks that remain enabled.
+	analyzers = allAnalyzers(selectAnalyzers(analyzers, lpkgs, r.cfg))
+	registerGobTypes(analyzers)
 
 	r.Stats.setState(StateBuildActionGraph)
 	all := map[*loader.PackageSpec]*packageAction{}

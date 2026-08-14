@@ -60,6 +60,16 @@ type Package struct {
 	TypesInfo *types.Info
 }
 
+func packageConfigDir(pkg *packages.Package) string {
+	dir := config.Dir(pkg.GoFiles)
+	if dir == "" {
+		// Synthetic test mains only have source files in the build cache,
+		// but packages still reports the directory of the package under test.
+		dir = pkg.Dir
+	}
+	return dir
+}
+
 // Graph resolves patterns and returns packages with all the
 // information required to later load type information, and optionally
 // syntax trees.
@@ -101,7 +111,7 @@ func Graph(cfg *packages.Config, patterns ...string) ([]*PackageSpec, error) {
 		for path, imp := range pkg.Imports {
 			spec.Imports[path] = m[imp]
 		}
-		if cdir := config.Dir(pkg.GoFiles); cdir != "" {
+		if cdir := packageConfigDir(pkg); cdir != "" {
 			cfg, err := config.Load(cdir)
 			if err != nil {
 				spec.Errors = append(spec.Errors, convertError(err)...)

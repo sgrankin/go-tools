@@ -10,9 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
-	"unicode"
 
 	"honnef.co/go/tools/analysis/lint"
 	"honnef.co/go/tools/config"
@@ -506,43 +504,18 @@ func success(allowedAnalyzers map[caseFoldedString]bool, res runner.ResultData) 
 }
 
 func filterAnalyzerNames(allAnalyzers []caseFoldedString, selection []caseFoldedString) map[caseFoldedString]bool {
-	allowedChecks := map[caseFoldedString]bool{}
+	names := make([]string, len(allAnalyzers))
+	for i, analyzer := range allAnalyzers {
+		names[i] = analyzer.String()
+	}
+	selected := make([]string, len(selection))
+	for i, check := range selection {
+		selected[i] = check.String()
+	}
 
-	for _, check := range selection {
-		b := true
-		if check.Length() > 1 && check.Index(0) == '-' {
-			b = false
-			check = check.Slice(1, -1)
-		}
-		if check.String() == "*" || check.String() == "all" {
-			// Match all
-			for _, a := range allAnalyzers {
-				allowedChecks[a] = b
-			}
-		} else if strings.HasSuffix(check.String(), "*") {
-			// Glob
-			prefix := check.Slice(0, check.Length()-1)
-			isCat := strings.IndexFunc(prefix.String(), unicode.IsNumber) == -1
-
-			for _, a := range allAnalyzers {
-				idx := strings.IndexFunc(a.String(), unicode.IsNumber)
-				if isCat {
-					// Glob is S*, which should match S1000 but not SA1000
-					cat := a.Slice(0, idx)
-					if prefix == cat {
-						allowedChecks[a] = b
-					}
-				} else {
-					// Glob is S1*
-					if strings.HasPrefix(a.String(), prefix.String()) {
-						allowedChecks[a] = b
-					}
-				}
-			}
-		} else {
-			// Literal check name
-			allowedChecks[check] = b
-		}
+	allowedChecks := make(map[caseFoldedString]bool)
+	for check, enabled := range config.FilterChecks(names, selected) {
+		allowedChecks[makeCaseFoldedString(check)] = enabled
 	}
 	return allowedChecks
 }
